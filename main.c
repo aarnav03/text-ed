@@ -15,7 +15,10 @@ void enable_raw(void) {
   struct termios raw = orig_termios;
   // tcgetattr(STDIN_FILENO, &raw);
 
-  raw.c_lflag &= ~(ECHO | ICANON);
+  raw.c_iflag &= ~(IXON | ICRNL | BRKINT | INPCK | ISTRIP);
+  raw.c_cflag |= ~(CS8);
+  raw.c_oflag &= ~(OPOST);
+  raw.c_lflag &= ~(ECHO | ICANON | ISIG | IEXTEN);
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 int main(void) {
@@ -23,9 +26,9 @@ int main(void) {
   char c;
   while (read(STDIN_FILENO, &c, 1) == 1 && c != 'q') {
     if (iscntrl(c)) {
-      printf("%d ctrl\n", c);
+      printf("%d ctrl\r\n", c);
     } else {
-      printf("%d -> ascii (%c) \n", c, c);
+      printf("%d -> ascii (%c) \r\n", c, c);
     }
   }
   return 0;
