@@ -27,17 +27,6 @@ void die(const char *s) {
 
 // terminal stuff
 
-int getTermSize(int *r, int *c) {
-  struct winsize ws;
-  if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0)
-    return -1;
-  else {
-    *c = ws.ws_col;
-    *r = ws.ws_row;
-    return 0;
-  }
-}
-
 void disable_raw(void) {
   if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
     die("tcsetattr");
@@ -102,6 +91,39 @@ void editorprocesskeys(void) {
 }
 
 // initialising the editor
+int getCursorPos(int *row, int *col) {
+  char buf[32];
+  unsigned int i = 0;
+
+  if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4)
+    return -1;
+
+  while (i < sizeof(buf) - 1) {
+    if (read(STDIN_FILENO, &buf[i], 1) != 1)
+      break;
+    if (buf[i] == 'R')
+      break;
+    i++;
+  }
+  buf[i] = '\0';
+  printf("\r\n&buf[i]: '%s'\r\n", &buf[1]);
+
+  editorRead();
+  return -1;
+}
+int getTermSize(int *r, int *c) {
+  struct winsize ws;
+  if (1 || ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+    if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12)
+      return -1;
+    return getCursorPos(r, c);
+  } else {
+    *c = ws.ws_col;
+    *r = ws.ws_row;
+    return 0;
+  }
+}
+
 void initeditor(void) {
   if (getTermSize(&E.screenRow, &E.screenCol) == -1)
     die("getTermSize");
