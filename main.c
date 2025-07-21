@@ -10,9 +10,18 @@
 #include <unistd.h>
 
 #define ctrl(k) ((k) & 0x1f)
+#define version "0.0"
+
+enum navKeys {
+  left = 'a',
+  right = 'd',
+  up = 'w',
+  down = 's',
+};
 
 // info
 struct editorconfig {
+  int curX, curY;
   int screenRow;
   int screenCol;
   struct termios orig_termios;
@@ -24,7 +33,7 @@ struct appendBuf {
   char *c;
   int len;
 };
-#define appendBuf_init {NULL, 0}
+#define appendBuf_init {NULL, 0} /* empty */
 
 void abAppend(struct appendBuf *ab, const char *s, int len) {
   char *new = realloc(ab->c, ab->len + len);
@@ -42,9 +51,10 @@ void die(const char *s);
 void disable_raw(void);
 void enable_raw(void);
 char editorRead(void);
-void editordrawrows(void);
+void editordrawrows(struct appendBuf *ab);
 void refreshScreen(void);
 void editorprocesskeys(void);
+void editorCursorMove(char key);
 int getCursorPos(int *row, int *col);
 int getTermSize(int *r, int *c);
 void initeditor(void);
@@ -89,26 +99,81 @@ char editorRead(void) {
     if (n == -1 && errno != EAGAIN)
       die("read");
   }
-  return c;
+  if (c == '\x1b') {
+    char seq[3];
+    if (read(STDIN_FILENO, &seq[0], 1) != 1)
+      return '\x1b';
+    if (read(STDIN_FILENO, &seq[1], 1) != 1)
+      return '\x1b';
+
+    if (seq[0] == '[') {
+      switch (seq[1]) {
+      case 'A':
+        return up;
+      case 'B':
+        return down;
+      case 'C':
+        return right;
+      case 'D':
+        return left;
+      }
+    }
+    return '\x1b';
+  } else {
+    return c;
+  }
 }
 
 // output fn
-void editordrawrows(void) {
+void editordrawrows(struct appendBuf *ab) {
   int y;
   for (y = 0; y < E.screenRow; y++) {
-    write(STDOUT_FILENO, "~", 3);
+    if (y == E.screenRow / 3) {
+      char welcome[80];
+      int welcomeLen = snprintf(welcome, sizeof(welcome),
+                                "Arnv text editor --version %s", version);
+      if (welcomeLen > E.screenCol)
+        welcomeLen = E.screenCol;
+      int padding = (E.screenCol - welcomeLen) / 2;
+      if (padding) {
+        abAppend(ab, "~", 1);
+        padding--;
+      }
+      while (padding--) {
+        abAppend(ab, " ", 1);
+      }
+      abAppend(ab, welcome, welcomeLen);
+    }
+
+    else {
+      abAppend(ab, "~", 1);
+    }
+
+    abAppend(ab, "\x1b[K", 3);
     if (y < E.screenRow - 1) {
-      write(STDOUT_FILENO, "\r\n", 2);
+      abAppend(ab, "\r\n", 2);
     }
   }
 }
 
 void refreshScreen(void) {
+  struct appendBuf ab = appendBuf_init;
 
-  write(STDOUT_FILENO, "\x1b[2J", 4);
-  write(STDOUT_FILENO, "\x1b[H", 3);
-  editordrawrows();
-  write(STDOUT_FILENO, "\x1b[H", 3);
+  abAppend(&ab, "\x1b[?25l", 6);
+  // abAppend(&ab, "\x1b[2J", 4);
+  abAppend(&ab, "\x1b[H", 3);
+
+  editordrawrows(&ab);
+
+  char buf[32];
+  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.curY + 1, E.curX + 1);
+  abAppend(&ab, buf, strlen(buf));
+
+  abAppend(&ab, "\x1b[H", 3);
+  abAppend(&ab, "\x1b[?25h", 6);
+
+  write(STDOUT_FILENO, ab.c, ab.len);
+  abFree(&ab);
 }
 
 // input fn
@@ -120,6 +185,34 @@ void editorprocesskeys(void) {
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3);
     exit(0);
+    break;
+
+  case up:
+  case down:
+  case left:
+  case right:
+    editorCursorMove(c);
+    break;
+  }
+}
+
+void editorCursorMove(char key) {
+  switch (key) {
+
+  case left:
+    E.curX--;
+    break;
+
+  case right:
+    E.curX++;
+    break;
+
+  case up:
+    E.curY--;
+    break;
+
+  case down:
+    E.curY++;
     break;
   }
 }
@@ -160,6 +253,8 @@ int getTermSize(int *r, int *c) {
 }
 
 void initeditor(void) {
+  E.curX = 0;
+  E.curY = 0;
   if (getTermSize(&E.screenRow, &E.screenCol) == -1)
     die("getTermSize");
 }
