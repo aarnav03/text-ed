@@ -13,10 +13,12 @@
 #define version "0.0"
 
 enum navKeys {
-  left = 'a',
-  right = 'd',
-  up = 'w',
-  down = 's',
+  left = 1000,
+  right,
+  up,
+  down,
+  pg_up,
+  pg_down,
 };
 
 // info
@@ -54,7 +56,7 @@ char editorRead(void);
 void editordrawrows(struct appendBuf *ab);
 void refreshScreen(void);
 void editorprocesskeys(void);
-void editorCursorMove(char key);
+void editorCursorMove(int key);
 int getCursorPos(int *row, int *col);
 int getTermSize(int *r, int *c);
 void initeditor(void);
@@ -82,7 +84,8 @@ void enable_raw(void) {
   // tcgetattr(STDIN_FILENO, &raw);
 
   raw.c_iflag &= ~(IXON | ICRNL | BRKINT | INPCK | ISTRIP);
-  raw.c_cflag |= ~(CS8);
+  raw.c_cflag |= CS8;
+  // raw.c_cflag &= ~CSIZE;
   raw.c_oflag &= ~(OPOST);
   raw.c_lflag &= ~(ECHO | ICANON | ISIG | IEXTEN);
   raw.c_cc[VMIN] = 0;
@@ -99,6 +102,7 @@ char editorRead(void) {
     if (n == -1 && errno != EAGAIN)
       die("read");
   }
+
   if (c == '\x1b') {
     char seq[3];
     if (read(STDIN_FILENO, &seq[0], 1) != 1)
@@ -107,18 +111,33 @@ char editorRead(void) {
       return '\x1b';
 
     if (seq[0] == '[') {
-      switch (seq[1]) {
-      case 'A':
-        return up;
-      case 'B':
-        return down;
-      case 'C':
-        return right;
-      case 'D':
-        return left;
+      if (seq[1] >= '0' && seq[1] <= '9') {
+        if (read(STDIN_FILENO, &seq[2], 1) != 1)
+          return '\x1b';
+        if (seq[2] == '~') {
+          switch (seq[1]) {
+          case '5':
+            pg_up;
+          case '6':
+            pg_down;
+          }
+        }
+      } else {
+        switch (seq[1]) {
+        case 'A':
+          return up;
+        case 'B':
+          return down;
+        case 'C':
+          return right;
+        case 'D':
+          return left;
+        }
       }
     }
+
     return '\x1b';
+
   } else {
     return c;
   }
@@ -179,13 +198,21 @@ void refreshScreen(void) {
 // input fn
 
 void editorprocesskeys(void) {
-  char c = editorRead();
+  int c = editorRead();
   switch (c) {
   case ctrl('q'):
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3);
     exit(0);
     break;
+
+  case pg_up:
+  case pg_down: {
+    int l = E.screenRow;
+    while (l--) {
+      editorCursorMove(c == pg_up ? up : down);
+    }
+  }
 
   case up:
   case down:
@@ -196,23 +223,30 @@ void editorprocesskeys(void) {
   }
 }
 
-void editorCursorMove(char key) {
+void editorCursorMove(int key) {
   switch (key) {
 
   case left:
-    E.curX--;
+    if (E.curX != 0) {
+      E.curX--;
+    }
     break;
-
   case right:
-    E.curX++;
+    if (E.curX != E.screenCol - 1) {
+      E.curX++;
+    }
     break;
 
   case up:
-    E.curY--;
+    if (E.curY != 0) {
+      E.curY--;
+    }
     break;
 
   case down:
-    E.curY++;
+    if (E.curY != E.screenRow - 1) {
+      E.curY++;
+    }
     break;
   }
 }
