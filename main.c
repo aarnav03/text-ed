@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -25,10 +26,17 @@ enum navKeys {
 };
 
 // info
+typedef struct edRow {
+  int size;
+  char *chara;
+} edRow;
+
 struct editorconfig {
   int curX, curY;
   int screenRow;
   int screenCol;
+  int numRow;
+  edRow row;
   struct termios orig_termios;
 };
 struct editorconfig E;
@@ -50,9 +58,39 @@ void abAppend(struct appendBuf *ab, const char *s, int len) {
 }
 
 void abFree(struct appendBuf *ab) { free(ab->c); }
+
+// i/o for files
+//
+void die(const char *s);
+
+void editorOpen(char *fname) {
+  FILE *fh = fopen(fname, "r");
+  if (!fh)
+    die("fopen");
+
+  char *line = NULL;
+  size_t linemax = 0;
+
+  ssize_t linelen;
+  linelen = getline(&line, &linemax, fh);
+  if (linelen != -1) {
+    while (linelen > 0 &&
+           (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
+      linelen--;
+    }
+
+    E.row.size = linelen;
+    E.row.chara = malloc(linelen + 1);
+    memcpy(E.row.chara, line, linelen);
+    E.row.chara[linelen] = '\0';
+    E.numRow = 1;
+  }
+  free(line);
+  fclose(fh);
+}
+
 // functions
 
-void die(const char *s);
 void disable_raw(void);
 void enable_raw(void);
 char editorRead(void);
@@ -171,25 +209,35 @@ char editorRead(void) {
 void editordrawrows(struct appendBuf *ab) {
   int y;
   for (y = 0; y < E.screenRow; y++) {
-    if (y == E.screenRow / 3) {
-      char welcome[80];
-      int welcomeLen = snprintf(welcome, sizeof(welcome),
-                                "Arnv text editor --version %s", version);
-      if (welcomeLen > E.screenCol)
-        welcomeLen = E.screenCol;
-      int padding = (E.screenCol - welcomeLen) / 2;
-      if (padding) {
+    if (y >= E.numRow) {
+      if (y == E.screenRow / 3 && E.numRow == 0) {
+        char welcome[80];
+        int welcomeLen = snprintf(welcome, sizeof(welcome),
+                                  "Arnv text editor --version %s", version);
+        if (welcomeLen > E.screenCol)
+          welcomeLen = E.screenCol;
+        int padding = (E.screenCol - welcomeLen) / 2;
+        if (padding) {
+          abAppend(ab, "~", 1);
+          padding--;
+        }
+        while (padding--) {
+          abAppend(ab, " ", 1);
+        }
+        abAppend(ab, welcome, welcomeLen);
+      } else {
         abAppend(ab, "~", 1);
-        padding--;
       }
-      while (padding--) {
-        abAppend(ab, " ", 1);
-      }
-      abAppend(ab, welcome, welcomeLen);
     }
 
+    // else {
+    //   abAppend(ab, "~", 1);
+    // }
     else {
-      abAppend(ab, "~", 1);
+      int len = E.row.size;
+      if (len > E.screenCol)
+        len = E.screenCol;
+      abAppend(ab, E.row.chara, len);
     }
 
     abAppend(ab, "\x1b[K", 3);
@@ -320,15 +368,20 @@ int getTermSize(int *r, int *c) {
 void initeditor(void) {
   E.curX = 0;
   E.curY = 0;
+  E.numRow = 0;
   if (getTermSize(&E.screenRow, &E.screenCol) == -1)
     die("getTermSize");
 }
 
 // main fn
 
-int main(void) {
+int main(int argc, char *argv[]) {
   enable_raw();
   initeditor();
+
+  if (argc >= 2)
+    editorOpen(argv[1]);
+
   while (1) {
     refreshScreen();
     editorprocesskeys();
