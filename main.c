@@ -13,10 +13,13 @@
 #define version "0.0"
 
 enum navKeys {
-  left = 1000,
+  left = 100,
   right,
   up,
   down,
+  del,
+  home,
+  endkey,
   pg_up,
   pg_down,
 };
@@ -116,10 +119,20 @@ char editorRead(void) {
           return '\x1b';
         if (seq[2] == '~') {
           switch (seq[1]) {
+          case '1':
+            return home;
+          case '3':
+            return del;
+          case '4':
+            return endkey;
           case '5':
-            pg_up;
+            return pg_up;
           case '6':
-            pg_down;
+            return pg_down;
+          case '7':
+            return home;
+          case '8':
+            return endkey;
           }
         }
       } else {
@@ -132,7 +145,18 @@ char editorRead(void) {
           return right;
         case 'D':
           return left;
+        case 'H':
+          return home;
+        case 'F':
+          return endkey;
         }
+      }
+    } else if (seq[0] == 0) {
+      switch (seq[1]) {
+      case 'H':
+        return home;
+      case 'F':
+        return endkey;
       }
     }
 
@@ -188,7 +212,7 @@ void refreshScreen(void) {
   snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.curY + 1, E.curX + 1);
   abAppend(&ab, buf, strlen(buf));
 
-  abAppend(&ab, "\x1b[H", 3);
+  // abAppend(&ab, "\x1b[H", 3); this brought the cursor to home or (0,0)
   abAppend(&ab, "\x1b[?25h", 6);
 
   write(STDOUT_FILENO, ab.c, ab.len);
@@ -205,6 +229,12 @@ void editorprocesskeys(void) {
     write(STDOUT_FILENO, "\x1b[H", 3);
     exit(0);
     break;
+  case home:
+    E.curX = 0;
+    break;
+  case endkey:
+    E.curX = E.screenCol - 1;
+    break;
 
   case pg_up:
   case pg_down: {
@@ -212,6 +242,7 @@ void editorprocesskeys(void) {
     while (l--) {
       editorCursorMove(c == pg_up ? up : down);
     }
+    break;
   }
 
   case up:
