@@ -2,6 +2,7 @@
 #include <asm-generic/ioctls.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,7 +37,7 @@ struct editorconfig {
   int screenRow;
   int screenCol;
   int numRow;
-  edRow row;
+  edRow *row;
   struct termios orig_termios;
 };
 struct editorconfig E;
@@ -61,6 +62,8 @@ void abFree(struct appendBuf *ab) { free(ab->c); }
 
 // i/o for files
 //
+
+void editorAppendRow(char *s, size_t len);
 void die(const char *s);
 
 void editorOpen(char *fname) {
@@ -73,18 +76,22 @@ void editorOpen(char *fname) {
 
   ssize_t linelen;
   linelen = getline(&line, &linemax, fh);
-  if (linelen != -1) {
+  while ((linelen = getline(&line, &linemax, fh)) != -1) {
+
     while (linelen > 0 &&
            (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
       linelen--;
     }
 
-    E.row.size = linelen;
-    E.row.chara = malloc(linelen + 1);
-    memcpy(E.row.chara, line, linelen);
-    E.row.chara[linelen] = '\0';
-    E.numRow = 1;
+    editorAppendRow(line, linelen);
   }
+
+  // E.row->size = linelen;
+  // E.row->chara = malloc(linelen + 1);
+  // memcpy(E.row->chara, line, linelen);
+  // E.row->chara[linelen] = '\0';
+  // E.numRow = 1;
+
   free(line);
   fclose(fh);
 }
@@ -234,10 +241,10 @@ void editordrawrows(struct appendBuf *ab) {
     //   abAppend(ab, "~", 1);
     // }
     else {
-      int len = E.row.size;
+      int len = E.row[y].size;
       if (len > E.screenCol)
         len = E.screenCol;
-      abAppend(ab, E.row.chara, len);
+      abAppend(ab, E.row[y].chara, len);
     }
 
     abAppend(ab, "\x1b[K", 3);
@@ -265,6 +272,19 @@ void refreshScreen(void) {
 
   write(STDOUT_FILENO, ab.c, ab.len);
   abFree(&ab);
+}
+
+void editorAppendRow(char *s, size_t len) {
+  E.row = realloc(E.row, sizeof(edRow) * (E.numRow + 1));
+
+  int index = E.numRow;
+  E.row[index].size = len;
+
+  // E.row->size = len;
+  E.row[index].chara = malloc(len + 1);
+  memcpy(E.row[index].chara, s, len);
+  E.row[index].chara[len] = '\0';
+  E.numRow++;
 }
 
 // input fn
@@ -369,6 +389,7 @@ void initeditor(void) {
   E.curX = 0;
   E.curY = 0;
   E.numRow = 0;
+  E.row = NULL;
   if (getTermSize(&E.screenRow, &E.screenCol) == -1)
     die("getTermSize");
 }
