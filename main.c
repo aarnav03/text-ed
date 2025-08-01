@@ -37,6 +37,7 @@ struct editorconfig {
   int screenRow;
   int screenCol;
   int rowOffset;
+  int colOffset;
   int numRow;
   edRow *row;
   struct termios orig_termios;
@@ -216,12 +217,16 @@ char editorRead(void) {
 // output fn
 
 void editorScroll(void) {
-  if (E.curY > E.rowOffset) {
+  if (E.curY < E.rowOffset) {
     E.rowOffset = E.curY;
   }
-  if (E.curY >= E.screenCol + E.rowOffset) {
+  if (E.curY >= E.screenRow + E.rowOffset) {
     E.rowOffset = E.curY - E.screenRow + 1;
   }
+  if (E.curX < E.colOffset)
+    E.colOffset = E.curX;
+  if (E.curX >= E.screenCol + E.colOffset)
+    E.colOffset = E.curX - E.screenCol + 1;
 }
 
 void editordrawrows(struct appendBuf *ab) {
@@ -254,10 +259,12 @@ void editordrawrows(struct appendBuf *ab) {
     //   abAppend(ab, "~", 1);
     // }
     else {
-      int len = E.row[filerow].size;
+      int len = E.row[filerow].size - E.colOffset;
+      if (len < 0)
+        len = 0;
       if (len > E.screenCol)
         len = E.screenCol;
-      abAppend(ab, E.row[filerow].chara, len);
+      abAppend(ab, &E.row[filerow].chara[E.colOffset], len);
     }
 
     abAppend(ab, "\x1b[K", 3);
@@ -278,7 +285,8 @@ void refreshScreen(void) {
   editordrawrows(&ab);
 
   char buf[32];
-  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.curY + 1, E.curX + 1);
+  snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.curY - E.rowOffset) + 1,
+           (E.curX - E.colOffset) + 1);
   abAppend(&ab, buf, strlen(buf));
 
   // abAppend(&ab, "\x1b[H", 3); this brought the cursor to home or (0,0)
@@ -337,16 +345,23 @@ void editorprocesskeys(void) {
 }
 
 void editorCursorMove(int key) {
+  edRow *row = (E.curY >= E.numRow) ? NULL : &E.row[E.curY];
   switch (key) {
 
   case left:
     if (E.curX != 0) {
       E.curX--;
+    } else if (E.curY > 0) {
+      E.curY--;
+      E.curX = E.row[E.curY].size;
     }
     break;
   case right:
-    if (E.curX != E.screenCol - 1) {
+    if (row && E.curX < row->size) {
       E.curX++;
+    } else if (row && E.curX == row->size) {
+      E.curY++;
+      E.curX = 0;
     }
     break;
 
@@ -361,6 +376,11 @@ void editorCursorMove(int key) {
       E.curY++;
     }
     break;
+  }
+  row = (E.curY >= E.numRow) ? NULL : &E.row[E.curY];
+  int rowlen = row ? row->size : 0;
+  if (E.curX > rowlen) {
+    E.curX = rowlen;
   }
 }
 
@@ -405,6 +425,7 @@ void initeditor(void) {
   E.numRow = 0;
   E.row = NULL;
   E.rowOffset = 0;
+  E.colOffset = 0;
   if (getTermSize(&E.screenRow, &E.screenCol) == -1)
     die("getTermSize");
 }

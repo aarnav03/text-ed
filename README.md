@@ -12,3 +12,7 @@ some functions are pretty self explanatory
 `\x1b[6n` 4 byte and responds the (x,y ) coords of the cursor
 `\x1b[999C\x1b[999B` basically moves the cursor to the extreme right and bottom
 
+
+<!-- todo complete the docs -->
+
+
