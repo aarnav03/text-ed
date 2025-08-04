@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <termios.h>
@@ -29,7 +30,9 @@ enum navKeys {
 // info
 typedef struct edRow {
   int size;
+  int rend_size;
   char *chara;
+  char *render;
 } edRow;
 
 struct editorconfig {
@@ -259,12 +262,12 @@ void editordrawrows(struct appendBuf *ab) {
     //   abAppend(ab, "~", 1);
     // }
     else {
-      int len = E.row[filerow].size - E.colOffset;
+      int len = E.row[filerow].rend_size - E.colOffset;
       if (len < 0)
         len = 0;
       if (len > E.screenCol)
         len = E.screenCol;
-      abAppend(ab, &E.row[filerow].chara[E.colOffset], len);
+      abAppend(ab, &E.row[filerow].render[E.colOffset], len);
     }
 
     abAppend(ab, "\x1b[K", 3);
@@ -306,7 +309,32 @@ void editorAppendRow(char *s, size_t len) {
   E.row[index].chara = malloc(len + 1);
   memcpy(E.row[index].chara, s, len);
   E.row[index].chara[len] = '\0';
+
+  E.row[index].rend_size = 0;
+  E.row[index].render = NULL;
+
   E.numRow++;
+}
+void editorUpdateRow(edRow *row) {
+  int tab = 0;
+  int i;
+  for (i = 0; i < row->rend_size; i++) {
+    if (row->chara[i] == '\t')
+      tab++;
+  }
+  free(row->render);
+  row->render = malloc(row->rend_size + tab * 3 + 1);
+
+  int idx;
+  idx = 0;
+  for (i = 0; i < row->rend_size; i++) {
+    if (row->chara[i] == '\t') {
+      row->render[idx++] = ' ';
+    }
+    row->render[idx++] = row->chara[i];
+  }
+  row->render[idx] = '\0';
+  row->rend_size = idx;
 }
 
 // input fn
