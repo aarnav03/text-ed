@@ -1,7 +1,9 @@
+#include <__stdarg_va_list.h>
 #include <asm-generic/errno-base.h>
 #include <asm-generic/ioctls.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +12,7 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #define ctrl(k) ((k) & 0x1f)
@@ -46,6 +49,8 @@ struct editorconfig {
   int numRow;
   edRow *row;
   char *fname;
+  char statusmsg[40];
+  time_t statusmsg_time;
   struct termios orig_termios;
 };
 struct editorconfig E;
@@ -113,6 +118,8 @@ void editorDrawrows(struct appendBuf *ab);
 void editorRefreshScreen(void);
 void editorprocesskeys(void);
 void editorCursorMove(int key);
+void editorDrawStatbar(struct appendBuf *ab);
+void editorDrawmsgbar(struct appendBuf *ab);
 void editorScroll(void);
 int editorCurXtoRendX(edRow *row, int curX);
 int getCursorPos(int *row, int *col);
@@ -287,17 +294,26 @@ void editorDrawrows(struct appendBuf *ab) {
 }
 void editorDrawStatbar(struct appendBuf *ab) {
   abAppend(ab, "\x1b[7m", 4);
-  char status[40];
-  int len = snprintf(status, sizeof(status), "%.20s - %d l",
+  char lstatus[40], rstatus[40];
+  int len = snprintf(lstatus, sizeof(lstatus), "%.20s - %d l",
                      E.fname ? E.fname : "[nameless]", E.numRow);
-  if (len < E.screenCol)
+  int rlen =
+      snprintf(rstatus, sizeof(rstatus), "%0.2f < %d:%d",
+               (float)((E.curY + 1) / E.numRow * 100), E.curY + 1, E.curX + 1);
+  if (len > E.screenCol)
     len = E.screenCol;
-  abAppend(ab, status, len);
+  abAppend(ab, lstatus, len);
   while (len < E.screenCol) {
-    abAppend(ab, " ", 1);
-    len++;
+    if (E.screenCol - len == rlen) {
+      abAppend(ab, rstatus, rlen);
+      break;
+    } else {
+      abAppend(ab, " ", 1);
+      len++;
+    }
   }
   abAppend(ab, "\x1b[m", 3);
+  abAppend(ab, "\r\n", 2);
 }
 void editorRefreshScreen(void) {
   editorScroll();
@@ -309,6 +325,7 @@ void editorRefreshScreen(void) {
 
   editorDrawrows(&ab);
   editorDrawStatbar(&ab);
+  editorDrawmsgbar(&ab);
   char buf[32];
   snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.curY - E.rowOffset) + 1,
            (E.rendX - E.colOffset) + 1);
@@ -372,7 +389,21 @@ int editorCurXtoRendX(edRow *row, int curX) {
   }
   return rendX;
 }
-
+void editorStatusmsg(const char *frmt, ...) {
+  va_list ap;
+  va_start(ap, frmt);
+  vsnprintf(E.statusmsg, sizeof(E.statusmsg), frmt, ap);
+  va_end(ap);
+  E.statusmsg_time = time(NULL);
+}
+void editorDrawmsgbar(struct appendBuf *ab) {
+  abAppend(ab, "\x1b[K", 3);
+  int lenmsg = strlen(E.statusmsg);
+  if (lenmsg > E.screenCol)
+    lenmsg = E.screenCol;
+  if (lenmsg && time(NULL) - E.statusmsg_time < 5)
+    abAppend(ab, E.statusmsg, lenmsg);
+}
 // input fn
 
 void editorprocesskeys(void) {
@@ -501,9 +532,11 @@ void initeditor(void) {
   E.rowOffset = 0;
   E.colOffset = 0;
   E.fname = NULL;
+  E.statusmsg[0] = '\0';
+  E.statusmsg_time = 0;
   if (getTermSize(&E.screenRow, &E.screenCol) == -1)
     die("getTermSize");
-  E.screenRow -= 1;
+  E.screenRow -= 2;
 }
 
 // main fn
@@ -514,6 +547,8 @@ int main(int argc, char *argv[]) {
 
   if (argc >= 2)
     editorOpen(argv[1]);
+
+  editorStatusmsg("halo :D");
 
   while (1) {
     editorRefreshScreen();
