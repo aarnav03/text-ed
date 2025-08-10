@@ -404,6 +404,23 @@ void editorDrawmsgbar(struct appendBuf *ab) {
   if (lenmsg && time(NULL) - E.statusmsg_time < 5)
     abAppend(ab, E.statusmsg, lenmsg);
 }
+void editorRowInsertChara(edRow *row, int idx, int chara) {
+  if (idx < 0 || idx > row->size)
+    idx = row->size;
+  memmove(&row->chara[idx + 1], &row->chara[idx], row->size - idx + 1);
+  row->size++;
+  row->chara[idx] = chara;
+  editorUpdateRow(row);
+}
+
+// editor input void fun
+void editorInsertChar(int ch) {
+  if (E.curY == E.numRow) {
+    editorAppendRow("", 0);
+  }
+  editorRowInsertChara(&E.row[E.curY], E.curX, ch);
+  E.curX++;
+}
 // input fn
 
 void editorprocesskeys(void) {
@@ -445,6 +462,10 @@ void editorprocesskeys(void) {
   case right:
     editorCursorMove(c);
     break;
+  default:
+    editorInsertChar(c);
+    break;
+    // todo some keys like d,f move the cursor and x or c causes the segfault
   }
 }
 
