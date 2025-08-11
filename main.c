@@ -1,8 +1,8 @@
-#include <__stdarg_va_list.h>
 #include <asm-generic/errno-base.h>
 #include <asm-generic/ioctls.h>
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -20,7 +20,8 @@
 #define tabstop 4
 
 enum navKeys {
-  left = 100,
+  bkspc = 127,
+  left = 1000,
   right,
   up,
   down,
@@ -61,7 +62,9 @@ struct appendBuf {
   int len;
 };
 #define appendBuf_init {NULL, 0} /* empty */
-
+void editorDrawStatbar(struct appendBuf *ab);
+void editorDrawmsgbar(struct appendBuf *ab);
+void editorStatusmsg(const char *frmt, ...);
 void abAppend(struct appendBuf *ab, const char *s, int len) {
   char *new = realloc(ab->c, ab->len + len);
   if (new == NULL)
@@ -74,7 +77,45 @@ void abAppend(struct appendBuf *ab, const char *s, int len) {
 void abFree(struct appendBuf *ab) { free(ab->c); }
 
 // i/o for files
+char *editorRowtoStr(int *bufrlen) {
+  int lentotal = 0;
+  int i;
+  for (i = 0; i < E.numRow; i++)
+    lentotal += E.row[i].size + 1;
 
+  *bufrlen = lentotal;
+
+  char *bufr = malloc(lentotal);
+  char *tmp = bufr;
+  for (i = 0; i < E.numRow; i++) {
+    memcpy(tmp, E.row[i].chara, E.row[i].size);
+    tmp += E.row[i].size;
+    *tmp = '\n';
+    tmp++;
+  }
+  return bufr;
+}
+void editorSave(void) {
+  if (E.fname == NULL)
+    return;
+
+  int len;
+  char *bufr = editorRowtoStr(&len);
+  int fh = open(E.fname, O_RDWR | O_CREAT, 0644);
+  if (fh != -1) {
+    if (ftruncate(fh, len) != -1) {
+      if (write(fh, bufr, len) == len) {
+        close(fh);
+        free(bufr);
+        editorStatusmsg(" '%s', %dL, %db written", E.fname, E.numRow, len);
+        return;
+      }
+    }
+    close(fh);
+  }
+  free(bufr);
+  editorStatusmsg("error :%s", strerror(errno));
+}
 void editorAppendRow(char *s, size_t len);
 void die(const char *s);
 
@@ -113,10 +154,10 @@ void editorOpen(char *fname) {
 
 void disable_raw(void);
 void enable_raw(void);
-char editorRead(void);
+int editorRead(void);
 void editorDrawrows(struct appendBuf *ab);
 void editorRefreshScreen(void);
-void editorprocesskeys(void);
+void editorProcesskeys(void);
 void editorCursorMove(int key);
 void editorDrawStatbar(struct appendBuf *ab);
 void editorDrawmsgbar(struct appendBuf *ab);
@@ -161,7 +202,7 @@ void enable_raw(void) {
     die("tcsetattr");
 }
 
-char editorRead(void) {
+int editorRead(void) {
   int n;
   char c;
   while ((n = read(STDIN_FILENO, &c, 1)) != 1) {
@@ -358,7 +399,7 @@ void editorAppendRow(char *s, size_t len) {
 void editorUpdateRow(edRow *row) {
   int tab = 0;
   int i;
-  for (i = 0; i < row->rend_size; i++)
+  for (i = 0; i < row->size; i++)
     if (row->chara[i] == '\t')
       tab++;
 
@@ -407,13 +448,14 @@ void editorDrawmsgbar(struct appendBuf *ab) {
 void editorRowInsertChara(edRow *row, int idx, int chara) {
   if (idx < 0 || idx > row->size)
     idx = row->size;
+  row->chara = realloc(row->chara, row->size + 2);
   memmove(&row->chara[idx + 1], &row->chara[idx], row->size - idx + 1);
   row->size++;
   row->chara[idx] = chara;
   editorUpdateRow(row);
 }
 
-// editor input void fun
+// editor input fun
 void editorInsertChar(int ch) {
   if (E.curY == E.numRow) {
     editorAppendRow("", 0);
@@ -423,9 +465,15 @@ void editorInsertChar(int ch) {
 }
 // input fn
 
-void editorprocesskeys(void) {
+void editorProcesskeys(void) {
   int c = editorRead();
   switch (c) {
+  case '\r':
+    // baaki hai
+    break;
+  case ctrl('w'):
+    editorSave();
+    break;
   case ctrl('q'):
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3);
@@ -437,6 +485,11 @@ void editorprocesskeys(void) {
   case endkey:
     if (E.curY < E.numRow)
       E.curX = E.row[E.curY].size;
+    break;
+  case ctrl('h'):
+  case bkspc:
+  case del:
+    // ye bhi baaki
     break;
 
   case pg_up:
@@ -450,9 +503,8 @@ void editorprocesskeys(void) {
     }
 
     int l = E.screenRow;
-    while (l--) {
+    while (l--)
       editorCursorMove(c == pg_up ? up : down);
-    }
     break;
   }
 
@@ -461,6 +513,10 @@ void editorprocesskeys(void) {
   case left:
   case right:
     editorCursorMove(c);
+    break;
+  case ctrl('l'):
+  case '\x1b':
+    // baaki
     break;
   default:
     editorInsertChar(c);
@@ -573,7 +629,7 @@ int main(int argc, char *argv[]) {
 
   while (1) {
     editorRefreshScreen();
-    editorprocesskeys();
+    editorProcesskeys();
   }
   return 0;
 }
