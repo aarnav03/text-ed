@@ -18,6 +18,7 @@
 #define ctrl(k) ((k) & 0x1f)
 #define version "0.0"
 #define tabstop 4
+#define quitConf 0
 
 enum navKeys {
   bkspc = 127,
@@ -50,6 +51,7 @@ struct editorconfig {
   int numRow;
   edRow *row;
   char *fname;
+  int modif;
   char statusmsg[40];
   time_t statusmsg_time;
   struct termios orig_termios;
@@ -105,6 +107,7 @@ void editorSave(void) {
   if (fh != -1) {
     if (ftruncate(fh, len) != -1) {
       if (write(fh, bufr, len) == len) {
+        E.modif = 0;
         close(fh);
         free(bufr);
         editorStatusmsg(" '%s', %dL, %db written", E.fname, E.numRow, len);
@@ -148,6 +151,7 @@ void editorOpen(char *fname) {
 
   free(line);
   fclose(fh);
+  E.modif = 0;
 }
 
 // functions
@@ -336,8 +340,8 @@ void editorDrawrows(struct appendBuf *ab) {
 void editorDrawStatbar(struct appendBuf *ab) {
   abAppend(ab, "\x1b[7m", 4);
   char lstatus[40], cstatus[20], rstatus[40];
-  int len = snprintf(lstatus, sizeof(lstatus), "%.20s - %d l",
-                     E.fname ? E.fname : "[nameless]", E.numRow);
+  int len = snprintf(lstatus, sizeof(lstatus), "%.20s %s",
+                     E.fname ? E.fname : "[nameless]", (E.modif ? " ~ " : " "));
 
   int progPercent = (E.curY) * 100 / E.numRow;
 
@@ -422,6 +426,7 @@ void editorAppendRow(char *s, size_t len) {
 
   editorUpdateRow(&E.row[index]);
   E.numRow++;
+  E.modif++;
 }
 void editorUpdateRow(edRow *row) {
   int tab = 0;
@@ -480,6 +485,15 @@ void editorRowInsertChara(edRow *row, int idx, int chara) {
   row->size++;
   row->chara[idx] = chara;
   editorUpdateRow(row);
+  E.modif++;
+}
+void editorRowDelChar(edRow *row, int idx) {
+  if (idx < 0 || idx > row->size)
+    return;
+  memmove(&row->chara[idx], &row->chara[idx], row->size - idx);
+  row->size--;
+  editorUpdateRow(row);
+  E.modif++;
 }
 
 // editor input fun
@@ -490,9 +504,21 @@ void editorInsertChar(int ch) {
   editorRowInsertChara(&E.row[E.curY], E.curX, ch);
   E.curX++;
 }
+void editorDelChar(void) {
+  if (E.curY == E.numRow)
+    return;
+
+  edRow *row = &E.row[E.curY];
+  if (E.curX > 0) {
+    editorRowDelChar(row, E.curX - 1);
+    E.curX--;
+  }
+}
 // input fn
 
 void editorProcesskeys(void) {
+  static int quitCount = quitConf;
+
   int c = editorRead();
   switch (c) {
   case '\r':
@@ -502,6 +528,13 @@ void editorProcesskeys(void) {
     editorSave();
     break;
   case ctrl('q'):
+    if (E.modif && quitCount > 0) {
+      editorStatusmsg(
+          "unsaved changes, quit %d more times to quit without saving ",
+          quitCount);
+      quitCount--;
+      return;
+    }
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3);
     exit(0);
@@ -517,6 +550,10 @@ void editorProcesskeys(void) {
   case bkspc:
   case del:
     // ye bhi baaki
+    if (c == del)
+      editorCursorMove(right);
+    editorDelChar();
+
     break;
 
   case pg_up:
@@ -636,6 +673,7 @@ void initeditor(void) {
   E.rowOffset = 0;
   E.colOffset = 0;
   E.fname = NULL;
+  E.modif = 0;
   E.statusmsg[0] = '\0';
   E.statusmsg_time = 0;
   if (getTermSize(&E.screenRow, &E.screenCol) == -1)
