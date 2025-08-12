@@ -335,24 +335,51 @@ void editorDrawrows(struct appendBuf *ab) {
 }
 void editorDrawStatbar(struct appendBuf *ab) {
   abAppend(ab, "\x1b[7m", 4);
-  char lstatus[40], rstatus[40];
+  char lstatus[40], cstatus[20], rstatus[40];
   int len = snprintf(lstatus, sizeof(lstatus), "%.20s - %d l",
                      E.fname ? E.fname : "[nameless]", E.numRow);
+
+  int progPercent = (E.curY) * 100 / E.numRow;
+
+  int clen = 0;
+  if (E.curY == 0) {
+    clen = snprintf(cstatus, sizeof(cstatus), "  Top  ");
+  } else if (E.curY == E.numRow - 1 || E.curY == E.numRow) {
+    clen = snprintf(cstatus, sizeof(cstatus), "  Bot  ");
+  } else {
+    clen = snprintf(cstatus, sizeof(cstatus), "  %d%%  ", progPercent);
+  }
+
   int rlen =
-      snprintf(rstatus, sizeof(rstatus), "%0.2f < %d:%d",
-               (float)((E.curY + 1) / E.numRow * 100), E.curY + 1, E.curX + 1);
+      snprintf(rstatus, sizeof(rstatus), " < %d:%d", E.curY + 1, E.curX + 1);
+
   if (len > E.screenCol)
     len = E.screenCol;
   abAppend(ab, lstatus, len);
-  while (len < E.screenCol) {
-    if (E.screenCol - len == rlen) {
-      abAppend(ab, rstatus, rlen);
-      break;
-    } else {
-      abAppend(ab, " ", 1);
-      len++;
-    }
-  }
+  int empty = E.screenCol - len - (rlen + clen + 1);
+  while (empty-- > 0)
+    abAppend(ab, " ", 1);
+
+  abAppend(ab, "\x1b[1;36;40m", 10);
+  abAppend(ab, cstatus, clen);
+  abAppend(ab, "\x1b[0m", 4);
+  abAppend(ab, "\x1b[1;30;43m", 10);
+  // abAppend(ab, "\x1b[40", 4);
+
+  abAppend(ab, rstatus, rlen);
+
+  // while (len < E.screenCol) {
+  //   if (E.screenCol - len == rlen) {
+  //     abAppend(ab, rstatus, rlen);
+  //
+  //   } else if (E.screenCol - len - rlen == clen) {
+  //     abAppend(ab, cstatus, clen);
+  //     continue;
+  //   } else {
+  //     abAppend(ab, " ", 1);
+  //     len++;
+  //   }
+  // }
   abAppend(ab, "\x1b[m", 3);
   abAppend(ab, "\r\n", 2);
 }
