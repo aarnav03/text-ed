@@ -67,6 +67,8 @@ struct appendBuf {
 void editorDrawStatbar(struct appendBuf *ab);
 void editorDrawmsgbar(struct appendBuf *ab);
 void editorStatusmsg(const char *frmt, ...);
+char *editorPrompt(char *prompt);
+
 void abAppend(struct appendBuf *ab, const char *s, int len) {
   char *new = realloc(ab->c, ab->len + len);
   if (new == NULL)
@@ -98,8 +100,13 @@ char *editorRowtoStr(int *bufrlen) {
   return bufr;
 }
 void editorSave(void) {
-  if (E.fname == NULL)
+  if (E.fname == NULL) {
+    E.fname = editorPrompt("save as %s");
+    if (E.fname == NULL)
+      editorStatusmsg("not savin ");
+
     return;
+  }
 
   int len;
   char *bufr = editorRowtoStr(&len);
@@ -345,7 +352,7 @@ void editorDrawStatbar(struct appendBuf *ab) {
   int len = snprintf(lstatus, sizeof(lstatus), "%.20s %s",
                      E.fname ? E.fname : "[nameless]", (E.modif ? " ~ " : " "));
 
-  int progPercent = (E.curY) * 100 / E.numRow;
+  int progPercent = (E.numRow == 0) ? 0 : E.curY * 100 / E.numRow;
 
   int clen = 0;
   if (E.curY == 0) {
@@ -355,8 +362,6 @@ void editorDrawStatbar(struct appendBuf *ab) {
   } else {
     clen = snprintf(cstatus, sizeof(cstatus), "  %d%%  ", progPercent);
   }
-  // todo:
-  // make it compatible without openin any file
   int rlen =
       snprintf(rstatus, sizeof(rstatus), " < %d:%d", E.curY + 1, E.curX + 1);
 
@@ -563,6 +568,41 @@ void editorInsertNewLine(void) {
   }
   E.curY++;
   E.curX = 0;
+}
+
+char *editorPrompt(char *prompt) {
+  size_t bufsize = 128;
+  char *buf = malloc(sizeof(bufsize));
+
+  size_t buflen = 0;
+  buf[0] = '\0';
+
+  while (1) {
+    editorStatusmsg(prompt, buf);
+    editorRefreshScreen();
+
+    int c = editorRead();
+    if (c == del || c == ctrl('h') || c == bkspc) {
+      if (buflen != 0)
+        buf[--buflen] = '\0';
+    } else if (c == '\x1b') {
+      editorStatusmsg("");
+      free(buf);
+      return NULL;
+    } else if (c == '\r') {
+      if (buflen != 0) {
+        editorStatusmsg("");
+        return buf;
+      }
+
+    } else if (!iscntrl(c) && c < 128) {
+      if (buflen == bufsize - 1)
+        bufsize *= 2;
+      buf = realloc(buf, sizeof(bufsize));
+    }
+    buf[buflen++] = c;
+    buf[buflen] = '\0';
+  }
 }
 // input fn
 
