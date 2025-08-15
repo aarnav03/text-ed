@@ -417,7 +417,7 @@ void editorInsertRow(int idx, char *s, size_t len) {
   if (idx < 0 || idx > E.numRow)
     return;
   E.row = realloc(E.row, sizeof(edRow) * (E.numRow + 1));
-  memmove(&E.row[idx], &E.row[idx + 1], sizeof(edRow) * (E.numRow - idx));
+  memmove(&E.row[idx + 1], &E.row[idx], sizeof(edRow) * (E.numRow - idx));
 
   // int index = E.numRow;
   E.row[idx].size = len;
