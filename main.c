@@ -585,6 +585,8 @@ char *editorPrompt(char *prompt) {
     if (c == del || c == ctrl('h') || c == bkspc) {
       if (buflen != 0)
         buf[--buflen] = '\0';
+      // todo:
+      // cant backspace more than once
     } else if (c == '\x1b') {
       editorStatusmsg("");
       free(buf);
