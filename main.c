@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <termios.h>
 #include <time.h>
+#include <uchar.h>
 #include <unistd.h>
 
 #define ctrl(k) ((k) & 0x1f)
@@ -117,7 +118,7 @@ void editorSave(void) {
         E.modif = 0;
         close(fh);
         free(bufr);
-        editorStatusmsg(" '%s', %dL, %db written", E.fname, E.numRow, len);
+        editorStatusmsg(" '%s' %dL, %dB written", E.fname, E.numRow, len);
         return;
       }
     }
@@ -305,12 +306,30 @@ void editorScroll(void) {
   if (E.rendX >= E.screenCol + E.colOffset)
     E.colOffset = E.rendX - E.screenCol + 1;
 }
+void editorDrawLineNum(struct appendBuf *ab) {
+  int i = 1;
+  char num = (char)i;
+
+  for (int j = 0; j < E.numRow; j++) {
+    abAppend(ab, "\r", 1);
+    abAppend(ab, &num, 1);
+    i++;
+  }
+}
 
 void editorDrawrows(struct appendBuf *ab) {
   int y;
-  for (y = 0; y < E.screenRow; y++) {
+  for (y = 0; y < E.screenRow - 1; y++) {
+    int n = 1;
+    if (n < E.numRow) {
+      n = 1;
+      char nChar = (char)n;
+
+      abAppend(ab, &nChar, 1);
+      n++;
+    }
     int filerow = y + E.rowOffset;
-    if (filerow >= E.numRow) {
+    if (filerow >= E.numRow - 1) {
       if (y == E.screenRow / 3 && E.numRow == 0) {
         char welcome[80];
         int welcomeLen = snprintf(welcome, sizeof(welcome),
@@ -327,12 +346,8 @@ void editorDrawrows(struct appendBuf *ab) {
         }
         abAppend(ab, welcome, welcomeLen);
       }
-      abAppend(ab, "~", 1);
     }
 
-    // else {
-    //   abAppend(ab, "~", 1);
-    // }
     else {
       int len = E.row[filerow].rend_size - E.colOffset;
       if (len < 0)
@@ -343,9 +358,11 @@ void editorDrawrows(struct appendBuf *ab) {
     }
 
     abAppend(ab, "\x1b[K", 3);
+
     abAppend(ab, "\r\n", 2);
   }
 }
+
 void editorDrawStatbar(struct appendBuf *ab) {
   abAppend(ab, "\x1b[7m", 4);
   char lstatus[40], cstatus[20], rstatus[40];
@@ -396,6 +413,7 @@ void editorDrawStatbar(struct appendBuf *ab) {
   abAppend(ab, "\r\n", 2);
 }
 void editorRefreshScreen(void) {
+
   editorScroll();
   struct appendBuf ab = appendBuf_init;
 
@@ -585,8 +603,6 @@ char *editorPrompt(char *prompt) {
     if (c == del || c == ctrl('h') || c == bkspc) {
       if (buflen != 0)
         buf[--buflen] = '\0';
-      // todo:
-      // cant backspace more than once
     } else if (c == '\x1b') {
       editorStatusmsg("");
       free(buf);
